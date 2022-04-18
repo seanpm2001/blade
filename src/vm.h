@@ -81,6 +81,7 @@ void init_vm(b_vm *vm);
 void free_vm(b_vm *vm);
 
 b_ptr_result interpret(b_vm *vm, b_obj_module *module, const char *source);
+b_ptr_result interpret_function(b_vm *vm, b_obj_closure *closure);
 
 void push(b_vm *vm, b_value value);
 

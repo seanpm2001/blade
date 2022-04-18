@@ -57,7 +57,7 @@ class CurlList {
       die Exception('list expected')
 
     self._ptr = _curl.slist_create(items)
-    if self._ptr == nil 
+    if self._ptr == nil
       die Exception('CurlList initialization failed')
   }
 

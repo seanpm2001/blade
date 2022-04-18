@@ -2432,4 +2432,15 @@ b_ptr_result interpret(b_vm *vm, b_obj_module *module, const char *source) {
   return result;
 }
 
+b_ptr_result interpret_function(b_vm *vm, b_obj_closure *closure) {
+  initialize_exceptions(vm, closure->function->module);
+
+  push(vm, OBJ_VAL(closure));
+  call(vm, closure, 0);
+
+  b_ptr_result result = run(vm);
+
+  return result;
+}
+
 #undef ERR_CANT_ASSIGN_EMPTY
