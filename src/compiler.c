@@ -1326,6 +1326,7 @@ b_parse_rule parse_rules[] = {
     [DEF_TOKEN] = {NULL, NULL, PREC_NONE},
     [DEFAULT_TOKEN] = {NULL, NULL, PREC_NONE},
     [DIE_TOKEN] = {NULL, NULL, PREC_NONE},
+    [DO_TOKEN] = {NULL, NULL, PREC_NONE},
     [ECHO_TOKEN] = {NULL, NULL, PREC_NONE},
     [ELSE_TOKEN] = {NULL, NULL, PREC_NONE},
     [FALSE_TOKEN] = {literal, NULL, PREC_NONE},
@@ -1918,25 +1919,27 @@ static void using_statement(b_parser *p) {
 
       if (case_type == WHEN_TOKEN) {
         state = 1;
-        advance(p);
+        do {
+          advance(p);
 
-        b_value jump = NUMBER_VAL((double) current_blob(p)->count - (double) start_offset);
+          b_value jump = NUMBER_VAL((double) current_blob(p)->count - (double) start_offset);
 
-        if (p->previous.type == TRUE_TOKEN) {
-          table_set(p->vm, &sw->table, TRUE_VAL, jump);
-        } else if (p->previous.type == FALSE_TOKEN) {
-          table_set(p->vm, &sw->table, FALSE_VAL, jump);
-        } else if (p->previous.type == LITERAL_TOKEN) {
-          int length;
-          char *str = compile_string(p, &length);
-          b_obj_string *string = copy_string(p->vm, str, length);
-          table_set(p->vm, &sw->table, OBJ_VAL(string), jump);
-        } else if (check_number(p)) {
-          table_set(p->vm, &sw->table, compile_number(p), jump);
-        } else {
-          error(p, "only constants can be used in when expressions");
-          return;
-        }
+          if (p->previous.type == TRUE_TOKEN) {
+            table_set(p->vm, &sw->table, TRUE_VAL, jump);
+          } else if (p->previous.type == FALSE_TOKEN) {
+            table_set(p->vm, &sw->table, FALSE_VAL, jump);
+          } else if (p->previous.type == LITERAL_TOKEN) {
+            int length;
+            char *str = compile_string(p, &length);
+            b_obj_string *string = copy_string(p->vm, str, length);
+            table_set(p->vm, &sw->table, OBJ_VAL(string), jump);
+          } else if (check_number(p)) {
+            table_set(p->vm, &sw->table, compile_number(p), jump);
+          } else {
+            error(p, "only constants can be used in when expressions");
+            return;
+          }
+        } while(match(p, COMMA_TOKEN));
       } else {
         state = 2;
         sw->default_jump = current_blob(p)->count - start_offset;
@@ -2097,7 +2100,7 @@ static void import_statement(b_parser *p) {
     free(module_name);
     module_name = (char *) calloc(p->previous.length + 1, sizeof(char));
     if (module_name == NULL) {
-      error(p, "could not calloc memory for module_name");
+      error(p, "could not allocate memory for module_name");
       return;
     }
     memcpy(module_name, p->previous.start, p->previous.length);
@@ -2119,6 +2122,7 @@ static void import_statement(b_parser *p) {
       return;
     }
 
+    free(module_path);
     error(p, "module not found");
     return;
   }
@@ -2138,6 +2142,7 @@ static void import_statement(b_parser *p) {
   init_blob(&blob);
   b_obj_module *module = new_module(p->vm, module_name, module_path);
   b_obj_func *function = compile(p->vm, module, source, &blob);
+  free(source);
 
   if (function == NULL) {
     error(p, "failed to import %s", module_name);
@@ -2293,6 +2298,34 @@ static void while_statement(b_parser *p) {
   p->innermost_loop_scope_depth = surrounding_scope_depth;
 }
 
+static void do_while_statement(b_parser *p) {
+  int surrounding_loop_start = p->innermost_loop_start;
+  int surrounding_scope_depth = p->innermost_loop_scope_depth;
+
+  // we'll be jumping back to right before the
+  // statements after the loop body
+  p->innermost_loop_start = current_blob(p)->count;
+
+  statement(p);
+
+  consume(p, WHILE_TOKEN, "expecting 'while' statement");
+
+  expression(p);
+
+  int exit_jump = emit_jump(p, OP_JUMP_IF_FALSE);
+  emit_byte(p, OP_POP);
+
+  emit_loop(p, p->innermost_loop_start);
+
+  patch_jump(p, exit_jump);
+  emit_byte(p, OP_POP);
+
+  end_loop(p);
+
+  p->innermost_loop_start = surrounding_loop_start;
+  p->innermost_loop_scope_depth = surrounding_scope_depth;
+}
+
 static void continue_statement(b_parser *p) {
   if (p->innermost_loop_start == -1) {
     error(p, "'continue' can only be used in a loop");
@@ -2333,6 +2366,7 @@ static void synchronize(b_parser *p) {
       case USING_TOKEN:
       case WHEN_TOKEN:
       case ITER_TOKEN:
+      case DO_TOKEN:
       case WHILE_TOKEN:
       case ECHO_TOKEN:
       case ASSERT_TOKEN:
@@ -2393,6 +2427,8 @@ static void statement(b_parser *p) {
     echo_statement(p);
   } else if (match(p, IF_TOKEN)) {
     if_statement(p);
+  } else if (match(p, DO_TOKEN)) {
+    do_while_statement(p);
   } else if (match(p, WHILE_TOKEN)) {
     while_statement(p);
   } else if (match(p, ITER_TOKEN)) {

@@ -32,7 +32,7 @@ static inline void reset_stack(b_vm *vm) {
 }
 
 static b_value get_stack_trace(b_vm *vm) {
-  char *trace = (char *) calloc(1, sizeof(char));
+  char *trace = N_ALLOCATE(char, 0);
 
   if (trace != NULL) {
 
@@ -47,7 +47,7 @@ static b_value get_stack_trace(b_vm *vm) {
       const char *trace_start = "    File: %s, Line: %d, In: ";
       size_t trace_start_length = snprintf(NULL, 0, trace_start, function->module->file, line);
 
-      char *trace_part = (char *) calloc(trace_start_length + 1, sizeof(char));
+      char *trace_part = N_ALLOCATE(char, trace_start_length + 1);
       if (trace_part != NULL) {
         sprintf(trace_part, trace_start, function->module->file, line);
         trace_part[(int) trace_start_length] = '\0';
@@ -412,7 +412,9 @@ static void init_builtin_methods(b_vm *vm) {
   DEFINE_FILE_METHOD(close);
   DEFINE_FILE_METHOD(open);
   DEFINE_FILE_METHOD(read);
+  DEFINE_FILE_METHOD(gets);
   DEFINE_FILE_METHOD(write);
+  DEFINE_FILE_METHOD(puts);
   DEFINE_FILE_METHOD(number);
   DEFINE_FILE_METHOD(is_tty);
   DEFINE_FILE_METHOD(is_open);
@@ -444,6 +446,8 @@ static void init_builtin_methods(b_vm *vm) {
   DEFINE_BYTES_METHOD(first);
   DEFINE_BYTES_METHOD(last);
   DEFINE_BYTES_METHOD(get);
+  DEFINE_BYTES_METHOD(split);
+  DEFINE_BYTES_METHOD(dispose);
   DEFINE_BYTES_METHOD(is_alpha);
   DEFINE_BYTES_METHOD(is_alnum);
   DEFINE_BYTES_METHOD(is_number);
@@ -982,6 +986,22 @@ static bool dict_get_index(b_vm *vm, b_obj_dict *dict, bool will_assign) {
   return throw_exception(vm, "invalid index %s", value_to_string(vm, index));
 }
 
+static bool module_get_index(b_vm *vm, b_obj_module *module, bool will_assign) {
+  b_value index = peek(vm, 0);
+
+  b_value result;
+  if (table_get(&module->values, index, &result)) {
+    if (!will_assign) {
+      pop_n(vm, 2); // we can safely get rid of the index from the stack
+    }
+    push(vm, result);
+    return true;
+  }
+
+  pop_n(vm, 1);
+  return throw_exception(vm, "%s is undefined in module %s", value_to_string(vm, index), module->name);
+}
+
 static bool string_get_index(b_vm *vm, b_obj_string *string, bool will_assign) {
   b_value lower = peek(vm, 0);
 
@@ -1197,6 +1217,15 @@ static inline void dict_set_index(b_vm *vm, b_obj_dict *dict, b_value index, b_v
   push(vm, value);
 }
 
+static inline void module_set_index(b_vm *vm, b_obj_module *module, b_value index, b_value value) {
+  table_set(vm, &module->values, index, value);
+  pop_n(vm, 3); // pop the value, index and dict out
+
+  // leave the value on the stack for consumption
+  // e.g. variable = dict[index] = 10
+  push(vm, value);
+}
+
 static bool list_set_index(b_vm *vm, b_obj_list *list, b_value index, b_value value) {
   if (!IS_NUMBER(index)) {
     pop_n(vm, 3); // pop the value, index and list out
@@ -1299,7 +1328,7 @@ static bool concatenate(b_vm *vm) {
     b_obj_string *a = AS_STRING(_a);
 
     int length = a->length + b->length;
-    char *chars = (char*)calloc(length + 1, sizeof(char));
+    char *chars = ALLOCATE(char, length + 1);
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
@@ -1349,7 +1378,7 @@ b_ptr_result run(b_vm *vm) {
     push(vm, type(a op b));                                                    \
   } while (false)
 
-#define BINARY_BIT_OP(type, op)                                                \
+#define BINARY_BIT_OP(op)                                                \
   do {                                                                         \
     if ((!IS_NUMBER(peek(vm, 0)) && !IS_BOOL(peek(vm, 0))) ||                  \
         (!IS_NUMBER(peek(vm, 1)) && !IS_BOOL(peek(vm, 1)))) {                  \
@@ -1357,9 +1386,9 @@ b_ptr_result run(b_vm *vm) {
                      value_type(peek(vm, 0)), value_type(peek(vm, 1)));        \
                      break;       \
     }                                                                          \
-    unsigned int b = AS_NUMBER(pop(vm));                                       \
-    unsigned int a = AS_NUMBER(pop(vm));                                       \
-    push(vm, type((double)(a op b)));                                          \
+    long b = AS_NUMBER(pop(vm));                                       \
+    long a = AS_NUMBER(pop(vm));                        \
+    push(vm, INTEGER_VAL(a op b));                                          \
   } while (false)
 
 #define BINARY_MOD_OP(type, op)                                                \
@@ -1378,7 +1407,6 @@ b_ptr_result run(b_vm *vm) {
   } while (false)
 
   for (;;) {
-
     // try...finally... (i.e. try without a catch but a finally
     // but whose try body raises an exception)
     // can cause us to go into an invalid mode where frame count == 0
@@ -1489,23 +1517,23 @@ b_ptr_result run(b_vm *vm) {
         break;
       }
       case OP_AND: {
-        BINARY_BIT_OP(NUMBER_VAL, &);
+        BINARY_BIT_OP(&);
         break;
       }
       case OP_OR: {
-        BINARY_BIT_OP(NUMBER_VAL, |);
+        BINARY_BIT_OP(|);
         break;
       }
       case OP_XOR: {
-        BINARY_BIT_OP(NUMBER_VAL, ^);
+        BINARY_BIT_OP(^);
         break;
       }
       case OP_LSHIFT: {
-        BINARY_BIT_OP(NUMBER_VAL, <<);
+        BINARY_BIT_OP(<<);
         break;
       }
       case OP_RSHIFT: {
-        BINARY_BIT_OP(NUMBER_VAL, >>);
+        BINARY_BIT_OP(>>);
         break;
       }
       case OP_ONE: {
@@ -2123,6 +2151,12 @@ b_ptr_result run(b_vm *vm) {
               }
               break;
             }
+            case OBJ_MODULE: {
+              if (!module_get_index(vm, AS_MODULE(peek(vm, 1)), will_assign == (uint8_t) 1)) {
+                EXIT_VM();
+              }
+              break;
+            }
             case OBJ_BYTES: {
               if (!bytes_get_index(vm, AS_BYTES(peek(vm, 1)), will_assign == (uint8_t) 1)) {
                 EXIT_VM();
@@ -2169,6 +2203,10 @@ b_ptr_result run(b_vm *vm) {
             }
             case OBJ_DICT: {
               dict_set_index(vm, AS_DICT(peek(vm, 2)), index, value);
+              break;
+            }
+            case OBJ_MODULE: {
+              module_set_index(vm, AS_MODULE(peek(vm, 2)), index, value);
               break;
             }
             case OBJ_BYTES: {

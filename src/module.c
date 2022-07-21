@@ -35,6 +35,8 @@ b_module_init modules[] = {
     GET_MODULE_LOADER(socket),     //
     GET_MODULE_LOADER(hash),     //
     GET_MODULE_LOADER(reflect), //
+    GET_MODULE_LOADER(array), //
+    GET_MODULE_LOADER(struct), //
     NULL,
 };
 
@@ -142,9 +144,9 @@ void bind_user_modules(b_vm *vm, char *pkg_root) {
       int ext_length = (int) strlen(LIBRARY_FILE_EXTENSION);
 
       // skip . and .. in path
-      if (memcmp(ent->d_name, ".", (int)strlen(ent->d_name)) == 0
-        || memcmp(ent->d_name, "..", (int)strlen(ent->d_name)) == 0
-        || (int) strlen(ent->d_name) < ext_length + 1) {
+      if ((strlen(ent->d_name) == 1 && ent->d_name[0] == '.') // .
+        || (strlen(ent->d_name) == 2 && ent->d_name[0] == '.' && ent->d_name[1] == '.') // ..
+        || strlen(ent->d_name) < ext_length + 1) {
         continue;
       }
 
@@ -162,7 +164,7 @@ void bind_user_modules(b_vm *vm, char *pkg_root) {
             char *filename = get_real_file_name(path);
 
             int name_length = (int)strlen(filename) - ext_length;
-            char *name = (char*) calloc(name_length + 1, sizeof(char));
+            char *name = ALLOCATE(char, name_length + 1);
             memcpy(name, filename, name_length);
             name[name_length] = '\0';
 
