@@ -48,5 +48,6 @@
 #cmakedefine HAVE_UTIME
 #cmakedefine HAVE_BASENAME
 #cmakedefine HAVE_DIRNAME
+#cmakedefine HAVE_TIMESPEC_GET
 
 #endif

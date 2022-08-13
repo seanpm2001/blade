@@ -487,6 +487,7 @@ void init_vm(b_vm *vm) {
   vm->mark_value = true;
   vm->should_debug_stack = false;
   vm->should_print_bytecode = false;
+  vm->sweeping = false;
 
   vm->gray_count = 0;
   vm->gray_capacity = 0;

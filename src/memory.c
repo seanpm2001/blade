@@ -13,10 +13,19 @@
 #include <stdio.h>
 #endif
 
+#include "thread/threads.h"
+
+static thrd_t gc_thread;
+
+typedef struct {
+  b_vm *vm;
+  b_obj *object;
+} b_thread_arg;
+
 void *allocate(b_vm *vm, size_t size) {
   vm->bytes_allocated += size;
 
-  if (vm->bytes_allocated > vm->next_gc) {
+  if (vm->bytes_allocated > vm->next_gc && !vm->sweeping) {
     collect_garbage(vm);
   }
 
@@ -37,11 +46,11 @@ void *allocate(b_vm *vm, size_t size) {
 void *reallocate(b_vm *vm, void *pointer, size_t old_size, size_t new_size) {
   vm->bytes_allocated += new_size - old_size;
 
-  if (new_size > old_size && vm->bytes_allocated > vm->next_gc) {
+  if (new_size > old_size && vm->bytes_allocated > vm->next_gc && !vm->sweeping) {
     collect_garbage(vm);
   }
 
-  if (new_size == 0) {
+  if (new_size == 0 && pointer != NULL) {
     free(pointer);
     return NULL;
   }
@@ -353,9 +362,8 @@ static void trace_references(b_vm *vm) {
   }
 }
 
-static void sweep(b_vm *vm) {
+static void sweep(b_vm *vm, b_obj* object) {
   b_obj *previous = NULL;
-  b_obj *object = vm->objects;
 
   while (object != NULL) {
     if (object->mark == vm->mark_value) {
@@ -388,21 +396,42 @@ void free_objects(b_vm *vm) {
   vm->gray_stack = NULL;
 }
 
+static int sweep_thread_func(void *data) {
+  b_thread_arg *arg = (b_thread_arg *)data;
+  arg->vm->sweeping = true;
+
+  mark_roots(arg->vm);
+  trace_references(arg->vm);
+  table_remove_whites(arg->vm, &arg->vm->strings);
+  table_remove_whites(arg->vm, &arg->vm->bytes);
+  table_remove_whites(arg->vm, &arg->vm->modules);
+  sweep(arg->vm, arg->object);
+
+  arg->vm->next_gc = arg->vm->bytes_allocated * GC_HEAP_GROWTH_FACTOR;
+  arg->vm->mark_value = !arg->vm->mark_value;
+
+  arg->vm->sweeping = false;
+  return 0;
+}
+
 void collect_garbage(b_vm *vm) {
 #if defined(DEBUG_LOG_GC) && DEBUG_LOG_GC
   printf("-- gc begins\n");
   size_t before = vm->bytes_allocated;
 #endif
+//
+//  mark_roots(vm);
+//  trace_references(vm);
+//  table_remove_whites(vm, &vm->strings);
+//  table_remove_whites(vm, &vm->bytes);
+//  table_remove_whites(vm, &vm->modules);
+//  sweep(vm, vm->objects);
 
-  mark_roots(vm);
-  trace_references(vm);
-  table_remove_whites(vm, &vm->strings);
-  table_remove_whites(vm, &vm->bytes);
-  table_remove_whites(vm, &vm->modules);
-  sweep(vm);
-
-  vm->next_gc = vm->bytes_allocated * GC_HEAP_GROWTH_FACTOR;
-  vm->mark_value = !vm->mark_value;
+  b_thread_arg *thread_arg = calloc(1, sizeof(b_thread_arg));
+  thread_arg->vm = vm;
+  thread_arg->object = vm->objects;
+  thrd_create(&gc_thread, sweep_thread_func, thread_arg);
+  thrd_detach(gc_thread);
 
 #if defined(DEBUG_LOG_GC) && DEBUG_LOG_GC
   printf("-- gc ends\n");

@@ -74,6 +74,7 @@ struct s_vm {
   // for switching through the command line args...
   bool should_debug_stack;
   bool should_print_bytecode;
+  bool sweeping;
 };
 
 void init_vm(b_vm *vm);

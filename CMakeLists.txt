@@ -126,6 +126,7 @@ endif()
 check_function_exists("utime" HAVE_UTIME)
 check_function_exists("basename" HAVE_BASENAME)
 check_function_exists("dirname" HAVE_DIRNAME)
+check_function_exists("timespec_get" HAVE_TIMESPEC_GET)
 
 # Generate config.h
 set(INCLUDE_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/include-gen")
@@ -163,6 +164,9 @@ if(UNIX)
 endif(UNIX)
 
 target_link_libraries(blade PRIVATE libblade)
+
+find_package(Threads)
+target_link_libraries(libblade ${CMAKE_THREAD_LIBS_INIT} )
 
 add_custom_target(blade_lib_files ALL
 		COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/libs ${OUTPUT_DIR}/libs
