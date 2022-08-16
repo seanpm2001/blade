@@ -394,35 +394,18 @@ void free_objects(b_vm *vm) {
   vm->gray_stack = NULL;
 }
 
-static int sweep_thread_func(void *data) {
-  b_vm *vm = (b_vm *)data;
-  vm->sweeping = true;
+void collect_garbage(b_vm *vm) {
+#if defined(DEBUG_LOG_GC) && DEBUG_LOG_GC
+  printf("-- gc begins\n");
+  size_t before = vm->bytes_allocated;
+#endif
+
   mark_roots(vm);
   trace_references(vm);
   table_remove_whites(vm, &vm->strings);
   table_remove_whites(vm, &vm->bytes);
   table_remove_whites(vm, &vm->modules);
   sweep(vm, vm->objects);
-  vm->sweeping = false;
-  return 0;
-}
-
-void collect_garbage(b_vm *vm) {
-#if defined(DEBUG_LOG_GC) && DEBUG_LOG_GC
-  printf("-- gc begins\n");
-  size_t before = vm->bytes_allocated;
-#endif
-//
-//  mark_roots(vm);
-//  trace_references(vm);
-//  table_remove_whites(vm, &vm->strings);
-//  table_remove_whites(vm, &vm->bytes);
-//  table_remove_whites(vm, &vm->modules);
-//  sweep(vm, vm->objects);
-
-  thrd_t gc_thread;
-  thrd_create(&gc_thread, sweep_thread_func, vm);
-  thrd_join(gc_thread, NULL);
 
 #if defined(DEBUG_LOG_GC) && DEBUG_LOG_GC
   printf("-- gc ends\n");
